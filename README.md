@@ -7,28 +7,34 @@ This is the same architectural pattern used by BMW (FactoryExplorer), PepsiCo (D
 ## Architecture
 
 ```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Isaac Sim   │───▶│ Camera Frames │───▶│ Cosmos-R2   │───▶│    MQTT     │
-│  (Digital    │    │  (PNG files)  │    │ (vLLM edge  │    │  Broker     │
-│   Twin)      │◀──┐└──────────────┘    │  inference)  │    │ (Mosquitto) │
-│              │   │                    └──────────────┘    └──────┬──────┘
-│  WebRTC      │   │                                              │
-│  Streaming ──┼──▶│ Viewer (AppImage)          ┌─────────────────┘
-│              │   │                            │
-│  MQTT-to-USD │◀──┼────────────────────────────┘
-│  Bridge      │   │  (updates alert prims)
-└──────────────┘   │
+┌──────────────────┐         ┌─────────────┐
+│  Isaac Sim 5.1   │         │    MQTT      │
+│                  │         │   Broker     │
+│  camera_server ──┼─:8211──▶│ (Mosquitto)  │──:9001──▶ ┌───────────┐
+│  (JPEG snapshots)│         └──────┬───────┘           │ Dashboard │
+│                  │                │                    │ (nginx)   │
+│  mqtt_bridge  ◀──┼────────────────┘                    │ :8080     │
+│  (USD updates)   │                                     │           │
+│                  │         ┌─────────────┐             │ Camera    │
+│  demo_scenario ──┼─MQTT──▶│ Cosmos-R2   │             │ feeds +   │
+│  (worker + prims)│         │ (vLLM edge  │             │ safety    │
+│                  │         │  inference)  │             │ status    │
+│  WebRTC       ───┼─:49100─▶│              │             └───────────┘
+│  Streaming       │         └──────────────┘
+└──────────────────┘
 ```
 
 ## Components
 
-| Component | Container | Purpose |
-|-----------|-----------|---------|
+| Component | Container/Process | Purpose |
+|-----------|-------------------|---------|
 | Isaac Sim 5.1 | `isaac-sim` | 3D warehouse scene, camera rendering, streaming |
-| Cosmos-Reason2-2B | `cosmos-edge` | Vision-language model for safety analysis |
-| Mosquitto | `mqtt-broker` | MQTT message broker (ports 1883, 9001) |
-| Edge Inference | host process | Watches camera frames, calls Cosmos, publishes to MQTT |
+| Camera Server | Isaac Sim Script Editor | In-process HTTP server serving JPEG snapshots on port 8211 |
+| Demo Scenario | Isaac Sim Script Editor | Worker + forklift prim animation, MQTT safety status |
 | MQTT Bridge | Isaac Sim Script Editor | Subscribes to MQTT, updates USD alert prims |
+| Dashboard | `dashboard` (nginx) | Web UI showing camera feeds and safety status |
+| Mosquitto | `mqtt-broker` | MQTT message broker (ports 1883 TCP, 9001 WebSocket) |
+| Cosmos-Reason2-2B | `cosmos-edge` | Vision-language model for safety analysis |
 
 ## Prerequisites
 
@@ -51,7 +57,7 @@ This is the same architectural pattern used by BMW (FactoryExplorer), PepsiCo (D
 ## Quick Start
 
 ```bash
-# Start all containers
+# Start all containers (Isaac Sim, MQTT broker, dashboard)
 ./scripts/launch.sh start
 
 # Wait for Isaac Sim to load (watch for streaming ready message)
@@ -59,12 +65,16 @@ podman logs -f isaac-sim
 
 # Connect the streaming client to 127.0.0.1
 
-# In Isaac Sim Script Editor, load the warehouse scene, then run:
+# In Isaac Sim Script Editor, run scripts in this order:
 exec(open("/workspace/create_alerts.py").read())
 exec(open("/workspace/mqtt_bridge.py").read())
+exec(open("/workspace/camera_server.py").read())
+exec(open("/workspace/demo_scenario.py").read())
 
-# In a host terminal, run the inference loop:
-CAMERA_DIR=$(pwd)/workspace/camera_feeds python3 scripts/edge_inference.py
+# Open dashboard at http://localhost:8080
+
+# Trigger the demo scenario from the dashboard button, or:
+mosquitto_pub -h localhost -t warehouse/control/trigger_demo -m '{"action":"start"}'
 
 # Check status
 ./scripts/launch.sh status
@@ -77,34 +87,44 @@ CAMERA_DIR=$(pwd)/workspace/camera_feeds python3 scripts/edge_inference.py
 
 ```
 scripts/
-  add_cameras.py        # Creates security camera prims in the scene
-  edge_inference.py     # Watches camera frames, sends to Cosmos, publishes MQTT
-  launch.sh             # Start/stop/status for all containers
+  edge_inference.py       # Watches camera frames, sends to Cosmos, publishes MQTT
+  launch.sh               # Start/stop/status for all containers
 
-workspace/                # Mounted into Isaac Sim container at /workspace
-  add_cameras.py          # Copy of scripts/add_cameras.py for Script Editor access
-  capture_frames.py       # Captures camera renders via Omniverse Replicator
-  create_alerts.py        # Creates alert spheres and zone planes
-  fix_cameras.py          # Repositions cameras to match actual scene bounds
-  inspect_scene.py        # Utility to inspect scene bounds and prim locations
-  mqtt_bridge.py          # MQTT-to-USD bridge (runs in Script Editor)
+dashboard/
+  index.html              # Web dashboard with camera feeds and safety status
+  nginx.conf              # nginx config (serves dashboard, proxies MQTT WebSocket)
+
+workspace/                  # Mounted into Isaac Sim container at /workspace
+  camera_server.py          # In-process HTTP server serving JPEG snapshots (port 8211)
+  create_alerts.py          # Creates alert spheres and zone planes
+  demo_scenario.py          # Demo: worker walks into forklift zone, publishes safety status
+  mqtt_bridge.py            # MQTT-to-USD bridge (runs in Script Editor)
+  add_demo_forklift.py      # Standalone forklift prim creation from scene assets
+  fix_cameras.py            # Restore cameras to saved positions
+  print_cameras.py          # Capture current camera positions to file
+  set_camera_from_view.py   # Set a camera to match current viewport
+  cleanup_alerts.py         # Remove alert prims from the scene
   warehouse_safety_scene.usd  # Saved scene with warehouse + cameras
 
 mqtt-config/
-  mosquitto.conf          # MQTT broker config (anonymous dev access)
+  mosquitto.conf            # MQTT broker config (anonymous dev access)
 ```
 
 ## How It Works
 
-1. **Camera capture** — `capture_frames.py` uses Omniverse Replicator to render each security camera at 1280x720 and save PNGs to `workspace/camera_feeds/`
+1. **Camera server** — `camera_server.py` runs inside Isaac Sim, using Replicator annotators to capture frames from three security cameras and serving them as JPEG snapshots via HTTP on port 8211
 
-2. **Edge inference** — `edge_inference.py` polls for new `*_latest.png` files, sends them to Cosmos-Reason2-2B via vLLM's OpenAI-compatible API, and publishes structured JSON results to MQTT topics (`warehouse/safety/{camera_id}`)
+2. **Demo scenario** — `demo_scenario.py` animates a worker prim walking into a forklift zone near a parked forklift, publishing safety status changes (SAFE → CAUTION → DANGER → SAFE) to MQTT
 
-3. **MQTT bridge** — `mqtt_bridge.py` runs inside Isaac Sim's Script Editor, subscribes to `warehouse/safety/#`, and updates USD prims:
+3. **Dashboard** — Web UI at port 8080 polls camera feeds directly from port 8211 and receives safety status updates via MQTT over WebSocket. Shows live camera views with color-coded safety indicators
+
+4. **MQTT bridge** — `mqtt_bridge.py` runs inside Isaac Sim's Script Editor, subscribes to `warehouse/safety/#`, and updates USD prims:
    - Alert spheres change color (green/yellow/red) based on `overall_status`
    - Zone planes become visible on CAUTION/DANGER, hidden on SAFE
 
-4. **Streaming** — Isaac Sim streams the annotated scene via WebRTC to the AppImage client on port 49100
+5. **Edge inference** — `edge_inference.py` sends camera frames to Cosmos-Reason2-2B via vLLM's OpenAI-compatible API, publishing structured JSON results to MQTT
+
+6. **Streaming** — Isaac Sim streams the annotated 3D scene via WebRTC to the AppImage client on port 49100
 
 ## VRAM Budget
 
