@@ -4,17 +4,6 @@ A warehouse safety monitoring system built with NVIDIA Isaac Sim and Cosmos-Reas
 
 This is the same architectural pattern used by BMW (FactoryExplorer), PepsiCo (Digital Twin Composer), and KION/GXO (autonomous forklift fleet twins) on NVIDIA Omniverse.
 
-## Screenshots
-
-**Streaming Client** — Isaac Sim warehouse scene with security cameras, alert zones, and Script Editor
-![Streaming Client](screenshots/client-view.png)
-
-**Dashboard (Safe)** — Live camera feeds with all zones reporting SAFE after demo completion
-![Dashboard Safe](screenshots/portal-view.png)
-
-**Dashboard (Danger)** — Worker detected in forklift operating area, zone highlighted red
-![Dashboard Danger](screenshots/danger-view.png)
-
 ## Architecture
 
 ```
@@ -146,3 +135,14 @@ Both Isaac Sim and Cosmos-Reason2 run on a single GPU:
 | Isaac Sim (DLSS Balanced, 0.375 texture budget) | ~14 GB |
 | Cosmos-Reason2-2B W4A16 (vLLM, 25% util) | ~8 GB |
 | **Total** | **~22 GB** |
+
+## Screenshots
+
+**Streaming Client** — Isaac Sim warehouse scene with security cameras, alert zones, and Script Editor
+![Streaming Client](screenshots/client-view.png)
+
+**Dashboard (Safe)** — Live camera feeds with all zones reporting SAFE after demo completion
+![Dashboard Safe](screenshots/portal-view.png)
+
+**Dashboard (Danger)** — Worker detected in forklift operating area, zone highlighted red
+![Dashboard Danger](screenshots/danger-view.png)
