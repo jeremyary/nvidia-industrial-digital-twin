@@ -38,24 +38,23 @@ mat_danger = create_material("DangerRed", Gf.Vec3f(1.0, 0.0, 0.0))
 mat_zone_danger = create_material("ZoneDangerRed", Gf.Vec3f(1.0, 0.0, 0.0), opacity=0.3)
 mat_zone_caution = create_material("ZoneCautionYellow", Gf.Vec3f(1.0, 0.8, 0.0), opacity=0.3)
 
-# ---- Alert marker spheres (at camera positions) ----
-# Camera positions from fix_cameras.py
-camera_positions = {
-    "overhead": Gf.Vec3d(-23, -70, 10),
-    "forklift": Gf.Vec3d(-50, -75, 8),
-    "loading_dock": Gf.Vec3d(-20, -45, 8),
+# ---- Alert marker spheres (at ground level near zone centers) ----
+# Placed on the floor so they don't block camera views
+alert_positions = {
+    "overhead": Gf.Vec3d(-23, -70, 0.5),       # center of warehouse, ground level
+    "forklift": Gf.Vec3d(-45, -80, 0.5),       # forklift zone corner
+    "loading_dock": Gf.Vec3d(-20, -50, 0.5),   # loading dock area
 }
 
-for cam_id, pos in camera_positions.items():
+for cam_id, pos in alert_positions.items():
     sphere_path = f"/World/Alerts/{cam_id}_Alert"
     sphere = UsdGeom.Sphere.Define(stage, sphere_path)
-    sphere.GetRadiusAttr().Set(0.3)
+    sphere.GetRadiusAttr().Set(0.5)
 
-    # Position near the camera
     xform = UsdGeom.Xformable(sphere.GetPrim())
     xform.ClearXformOpOrder()
     translate_op = xform.AddTranslateOp()
-    translate_op.Set(pos + Gf.Vec3d(0, 0, -0.5))  # slightly below camera
+    translate_op.Set(pos)
 
     # Bind green material (safe by default)
     UsdShade.MaterialBindingAPI.Apply(sphere.GetPrim()).Bind(mat_safe)

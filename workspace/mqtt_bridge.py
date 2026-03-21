@@ -10,9 +10,18 @@ importlib.invalidate_caches()
 
 import json
 import threading
+import uuid
 import omni.usd
 from pxr import UsdGeom, UsdShade, Gf, Sdf
 import paho.mqtt.client as mqtt
+
+# Stop any previous instance of this script
+try:
+    _prev_bridge_mqtt.loop_stop()
+    _prev_bridge_mqtt.disconnect()
+    print("Stopped previous bridge MQTT client")
+except Exception:
+    pass
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
@@ -130,11 +139,13 @@ def process_updates():
 
 
 # ---- Start MQTT client in background thread ----
-_mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="usd-bridge")
+_bridge_id = f"usd-bridge-{uuid.uuid4().hex[:8]}"
+_mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=_bridge_id)
 _mqtt_client.on_connect = on_connect
 _mqtt_client.on_message = on_message
 _mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
 _mqtt_client.loop_start()
+_prev_bridge_mqtt = _mqtt_client
 
 # ---- Register a periodic update on Kit's event loop ----
 import omni.kit.app

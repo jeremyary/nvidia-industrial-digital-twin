@@ -10,6 +10,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ISAAC_IMAGE="nvcr.io/nvidia/isaac-sim:5.1.0"
 VLLM_IMAGE="docker.io/vllm/vllm-openai:latest"
 MQTT_IMAGE="docker.io/eclipse-mosquitto:2"
+NGINX_IMAGE="docker.io/library/nginx:alpine"
 
 start_mqtt() {
     if podman ps --format '{{.Names}}' | grep -q '^mqtt-broker$'; then
@@ -45,7 +46,8 @@ start_isaac() {
         "${ISAAC_IMAGE}" \
         isaacsim isaacsim.exp.full.streaming --no-window \
         --/rtx-transient/resourcemanager/texturestreaming/memoryBudget=0.375 \
-        --/rtx/post/dlss/execMode=1
+        --/rtx/post/dlss/execMode=1 \
+        --/exts/isaacsim.core.throttling/enable_async=false
     echo "Waiting for Isaac Sim to load (watch logs with: podman logs -f isaac-sim)"
 }
 
@@ -71,9 +73,23 @@ start_cosmos() {
     echo "Waiting for vLLM to load model (watch logs with: podman logs -f cosmos-edge)"
 }
 
+start_dashboard() {
+    if podman ps --format '{{.Names}}' | grep -q '^dashboard$'; then
+        echo "dashboard already running"
+        return
+    fi
+    echo "Starting dashboard on http://localhost:8080 ..."
+    podman run --name dashboard -d --rm \
+        -p 8080:8080 \
+        --add-host=host.containers.internal:host-gateway \
+        -v "${PROJECT_DIR}/dashboard/index.html:/usr/share/nginx/html/index.html:ro" \
+        -v "${PROJECT_DIR}/dashboard/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+        "${NGINX_IMAGE}"
+}
+
 stop_all() {
     echo "Stopping containers..."
-    for name in cosmos-edge mqtt-broker isaac-sim; do
+    for name in dashboard cosmos-edge mqtt-broker isaac-sim; do
         if podman ps --format '{{.Names}}' | grep -q "^${name}$"; then
             echo "  Stopping ${name}..."
             podman stop "${name}" 2>/dev/null || true
@@ -84,7 +100,7 @@ stop_all() {
 
 show_status() {
     echo "=== Container Status ==="
-    for name in mqtt-broker isaac-sim cosmos-edge; do
+    for name in mqtt-broker isaac-sim cosmos-edge dashboard; do
         status=$(podman ps --format '{{.Status}}' --filter "name=^${name}$" 2>/dev/null || echo "not running")
         if [ -z "$status" ]; then
             status="not running"
@@ -101,6 +117,7 @@ case "${1:-status}" in
         start_mqtt
         start_isaac
         start_cosmos
+        start_dashboard
         echo ""
         echo "All containers launched."
         echo "Next steps:"
@@ -109,7 +126,10 @@ case "${1:-status}" in
         echo "  3. Open scene and run workspace scripts in Script Editor:"
         echo "     exec(open('/workspace/create_alerts.py').read())"
         echo "     exec(open('/workspace/mqtt_bridge.py').read())"
-        echo "  4. Run edge inference: python3 scripts/edge_inference.py"
+        echo "     exec(open('/workspace/camera_server.py').read())"
+        echo "     exec(open('/workspace/demo_scenario.py').read())"
+        echo "  4. Open dashboard: http://localhost:8080"
+        echo "  5. Click 'Trigger Demo Scenario' in the dashboard"
         ;;
     stop)
         stop_all
