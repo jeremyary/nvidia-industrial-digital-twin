@@ -7,30 +7,20 @@ This is the same architectural pattern used by BMW (FactoryExplorer), PepsiCo (D
 ## Architecture
 
 ```mermaid
-graph LR
-    subgraph isaac["Isaac Sim 5.1"]
-        camera_server["camera_server\n(JPEG snapshots)"]
-        mqtt_bridge["mqtt_bridge\n(USD updates)"]
-        demo["demo_scenario\n(worker + prims)"]
-        webrtc["WebRTC Streaming"]
-    end
+graph TD
+    camera_server["Isaac Sim: camera_server\n(JPEG snapshots)"]
+    demo["Isaac Sim: demo_scenario\n(worker + prims)"]
+    mqtt_bridge["Isaac Sim: mqtt_bridge\n(USD updates)"]
+    webrtc["Isaac Sim: WebRTC Streaming"]
+    cosmos["Cosmos-Reason2\n(vLLM edge inference)"]
+    mqtt_broker["MQTT Broker\n(Mosquitto)"]
+    dashboard["Dashboard\n(nginx :8080)"]
+    client["Streaming Client\n(AppImage)"]
 
-    subgraph mqtt_broker["MQTT Broker\n(Mosquitto)"]
-    end
-
-    subgraph cosmos["Cosmos-Reason2\n(vLLM edge inference)"]
-    end
-
-    subgraph dashboard["Dashboard\n(nginx :8080)"]
-    end
-
-    subgraph client["Streaming Client\n(AppImage)"]
-    end
-
-    camera_server -- ":8211 JPEG" --> dashboard
     camera_server -- "frames" --> cosmos
-    demo -- "MQTT safety status" --> mqtt_broker
-    cosmos -- "MQTT detections" --> mqtt_broker
+    camera_server -- ":8211 JPEG" --> dashboard
+    cosmos -- "detections" --> mqtt_broker
+    demo -- "safety status" --> mqtt_broker
     mqtt_broker -- ":9001 WebSocket" --> dashboard
     mqtt_broker -- ":1883 TCP" --> mqtt_bridge
     webrtc -- ":49100" --> client
