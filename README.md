@@ -6,22 +6,34 @@ This is the same architectural pattern used by BMW (FactoryExplorer), PepsiCo (D
 
 ## Architecture
 
-```
-┌──────────────────┐         ┌─────────────┐
-│  Isaac Sim 5.1   │         │    MQTT      │
-│                  │         │   Broker     │
-│  camera_server ──┼─:8211──▶│ (Mosquitto)  │──:9001──▶ ┌───────────┐
-│  (JPEG snapshots)│         └──────┬───────┘           │ Dashboard │
-│                  │                │                    │ (nginx)   │
-│  mqtt_bridge  ◀──┼────────────────┘                    │ :8080     │
-│  (USD updates)   │                                     │           │
-│                  │         ┌─────────────┐             │ Camera    │
-│  demo_scenario ──┼─MQTT──▶│ Cosmos-R2   │             │ feeds +   │
-│  (worker + prims)│         │ (vLLM edge  │             │ safety    │
-│                  │         │  inference)  │             │ status    │
-│  WebRTC       ───┼─:49100─▶│              │             └───────────┘
-│  Streaming       │         └──────────────┘
-└──────────────────┘
+```mermaid
+graph LR
+    subgraph isaac["Isaac Sim 5.1"]
+        camera_server["camera_server\n(JPEG snapshots)"]
+        mqtt_bridge["mqtt_bridge\n(USD updates)"]
+        demo["demo_scenario\n(worker + prims)"]
+        webrtc["WebRTC Streaming"]
+    end
+
+    subgraph mqtt_broker["MQTT Broker\n(Mosquitto)"]
+    end
+
+    subgraph cosmos["Cosmos-Reason2\n(vLLM edge inference)"]
+    end
+
+    subgraph dashboard["Dashboard\n(nginx :8080)"]
+    end
+
+    subgraph client["Streaming Client\n(AppImage)"]
+    end
+
+    camera_server -- ":8211 JPEG" --> dashboard
+    camera_server -- "frames" --> cosmos
+    demo -- "MQTT safety status" --> mqtt_broker
+    cosmos -- "MQTT detections" --> mqtt_broker
+    mqtt_broker -- ":9001 WebSocket" --> dashboard
+    mqtt_broker -- ":1883 TCP" --> mqtt_bridge
+    webrtc -- ":49100" --> client
 ```
 
 ## Components
